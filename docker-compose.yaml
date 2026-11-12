@@ -1,0 +1,362 @@
+services:
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.4
+    container_name: zookeeper
+    cpus: 0.5
+    mem_limit: 1g
+    ports:
+      - "22181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_REQUIRE_CLIENT_AUTH_SCHEME: "sasl"
+      ZOOKEEPER_AUTH_PROVIDER_1: "org.apache.zookeeper.server.auth.SASLAuthenticationProvider"
+      ZOOKEEPER_SASL_ENABLED: "true"
+      KAFKA_OPTS:
+        -Djava.security.auth.login.config=/etc/zookeeper/secrets/zookeeper.sasl.jaas.conf
+        -Dquorum.cnxn.threads.size=20
+        -Dzookeeper.authProvider.1=org.apache.zookeeper.server.auth.SASLAuthenticationProvider
+        -Dzookeeper.allowSaslFailedClients=false
+        -DjaasLoginRenew=3600000
+    volumes:
+      - data-zookeeper-log-1:/var/lib/zookeeper/log
+      - data-zookeeper-data-1:/var/lib/zookeeper/data
+      - ./kafka-1-creds/zookeeper.sasl.jaas.conf:/etc/zookeeper/secrets/zookeeper.sasl.jaas.conf
+    networks:
+      - proxynet
+
+
+  kafka-0:
+    image: confluentinc/cp-kafka:7.4.4
+    container_name: kafka-0
+    cpus: 1.5
+    mem_limit: 2g
+    depends_on:
+      - zookeeper
+    ports:
+      - "9093:9093"
+    volumes:
+      - data-kafka-0:/var/lib/kafka/data
+      - ./kafka-0-creds:/etc/kafka/secrets
+      - ./kafka-0-creds/zookeeper.sasl.jaas.conf:/etc/zookeeper/secrets/zookeeper.sasl.jaas.conf
+      - ./kafka-0-creds/kafka_server_jaas.conf:/etc/kafka/jaas/kafka_server_jaas.conf
+    environment:
+      KAFKA_BROKER_ID: 0
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: false
+      KAFKA_DELETE_TOPIC_ENABLE: true
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_LISTENERS: SASL_SSL://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: SASL_SSL://kafka-0:9093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: SASL_SSL:SASL_SSL
+      KAFKA_INTER_BROKER_LISTENER_NAME: SASL_SSL
+      KAFKA_SSL_KEYSTORE_FILENAME: kafka-0.keystore.jks
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: kafka-0_keystore_creds
+      KAFKA_SSL_KEY_CREDENTIALS: kafka-0_sslkey_creds
+      KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.kafka-0.truststore.jks
+      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: kafka-0_truststore_creds
+      KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: https
+      KAFKA_SSL_CLIENT_AUTH: requested
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN
+      KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND: "false"
+      KAFKA_SASL_ENABLED_MECHANISMS: PLAIN
+      KAFKA_SUPER_USERS: "User:admin"
+      KAFKA_OPTS: "-Djava.security.auth.login.config=/etc/kafka/secrets/kafka_server_jaas.conf"
+      KAFKA_AUTHORIZER_CLASS_NAME: "kafka.security.authorizer.AclAuthorizer"
+      KAFKA_OFFSETS_TOPIC_NUM_PARTITIONS: 3
+      # Небольшая куча JVM (принцип Confluent): остальная память контейнера — под кеш ОС
+      KAFKA_HEAP_OPTS: "-Xmx1G -Xms1G"
+    networks:
+      - proxynet
+    healthcheck:
+      test: ["CMD-SHELL", 'printf "security.protocol=SASL_SSL\nsasl.mechanism=PLAIN\nsasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username=\"admin\" password=\"admin-secret\";\nssl.truststore.location=/etc/kafka/secrets/kafka.kafka-0.truststore.jks\nssl.truststore.password=551288d\n" > /tmp/health.properties && kafka-broker-api-versions --bootstrap-server localhost:9093 --command-config /tmp/health.properties > /dev/null 2>&1']
+      interval: 10s
+      timeout: 15s
+      retries: 5
+      start_period: 40s
+
+  kafka-1:
+    image: confluentinc/cp-kafka:7.4.4
+    container_name: kafka-1
+    cpus: 1.5
+    mem_limit: 2g
+    depends_on:
+      - zookeeper
+    ports:
+      - "9094:9094"
+    volumes:
+      - data-kafka-1:/var/lib/kafka/data
+      - ./kafka-1-creds:/etc/kafka/secrets
+      - ./kafka-1-creds/zookeeper.sasl.jaas.conf:/etc/zookeeper/secrets/zookeeper.sasl.jaas.conf
+      - ./kafka-1-creds/kafka_server_jaas.conf:/etc/kafka/jaas/kafka_server_jaas.conf
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: false
+      KAFKA_DELETE_TOPIC_ENABLE: true
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_LISTENERS: SASL_SSL://0.0.0.0:9094
+      KAFKA_ADVERTISED_LISTENERS: SASL_SSL://kafka-1:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: SASL_SSL:SASL_SSL
+      KAFKA_INTER_BROKER_LISTENER_NAME: SASL_SSL
+      KAFKA_SSL_KEYSTORE_FILENAME: kafka-1.keystore.jks
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: kafka-1_keystore_creds
+      KAFKA_SSL_KEY_CREDENTIALS: kafka-1_sslkey_creds
+      KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.kafka-1.truststore.jks
+      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: kafka-1_truststore_creds
+      KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: https
+      KAFKA_SSL_CLIENT_AUTH: requested
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN
+      KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND: "false"
+      KAFKA_SASL_ENABLED_MECHANISMS: PLAIN
+      KAFKA_SUPER_USERS: "User:admin"
+      KAFKA_OPTS: "-Djava.security.auth.login.config=/etc/kafka/secrets/kafka_server_jaas.conf"
+      KAFKA_AUTHORIZER_CLASS_NAME: "kafka.security.authorizer.AclAuthorizer"
+      KAFKA_OFFSETS_TOPIC_NUM_PARTITIONS: 3
+      # Небольшая куча JVM (принцип Confluent): остальная память контейнера — под кеш ОС
+      KAFKA_HEAP_OPTS: "-Xmx1G -Xms1G"
+    networks:
+      - proxynet
+    healthcheck:
+      test: ["CMD-SHELL", 'printf "security.protocol=SASL_SSL\nsasl.mechanism=PLAIN\nsasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username=\"admin\" password=\"admin-secret\";\nssl.truststore.location=/etc/kafka/secrets/kafka.kafka-1.truststore.jks\nssl.truststore.password=551288d\n" > /tmp/health.properties && kafka-broker-api-versions --bootstrap-server localhost:9094 --command-config /tmp/health.properties > /dev/null 2>&1']
+      interval: 10s
+      timeout: 15s
+      retries: 5
+      start_period: 40s
+
+  kafka-2:
+    image: confluentinc/cp-kafka:7.4.4
+    container_name: kafka-2
+    cpus: 1.5
+    mem_limit: 2g
+    depends_on:
+      - zookeeper
+    ports:
+      - "9095:9095"
+    volumes:
+      - data-kafka-2:/var/lib/kafka/data
+      - ./kafka-2-creds:/etc/kafka/secrets
+      - ./kafka-2-creds/kafka_server_jaas.conf:/etc/kafka/jaas/kafka_server_jaas.conf
+    environment:
+      KAFKA_BROKER_ID: 2
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: false
+      KAFKA_DELETE_TOPIC_ENABLE: true
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_LISTENERS: SASL_SSL://0.0.0.0:9095
+      KAFKA_ADVERTISED_LISTENERS: SASL_SSL://kafka-2:9095
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: SASL_SSL:SASL_SSL
+      KAFKA_INTER_BROKER_LISTENER_NAME: SASL_SSL
+      KAFKA_SSL_KEYSTORE_FILENAME: kafka-2.keystore.jks
+      KAFKA_SSL_KEYSTORE_CREDENTIALS: kafka-2_keystore_creds
+      KAFKA_SSL_KEY_CREDENTIALS: kafka-2_sslkey_creds
+      KAFKA_SSL_TRUSTSTORE_FILENAME: kafka.kafka-2.truststore.jks
+      KAFKA_SSL_TRUSTSTORE_CREDENTIALS: kafka-2_truststore_creds
+      KAFKA_SSL_ENDPOINT_IDENTIFICATION_ALGORITHM: https
+      KAFKA_SSL_CLIENT_AUTH: requested
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN
+      KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND: "false"
+      KAFKA_SASL_ENABLED_MECHANISMS: PLAIN
+      KAFKA_SUPER_USERS: "User:admin"
+      KAFKA_OPTS: "-Djava.security.auth.login.config=/etc/kafka/secrets/kafka_server_jaas.conf"
+      KAFKA_AUTHORIZER_CLASS_NAME: "kafka.security.authorizer.AclAuthorizer"
+      KAFKA_OFFSETS_TOPIC_NUM_PARTITIONS: 3
+      # Небольшая куча JVM (принцип Confluent): остальная память контейнера — под кеш ОС
+      KAFKA_HEAP_OPTS: "-Xmx1G -Xms1G"
+    networks:
+      - proxynet
+    healthcheck:
+      test: ["CMD-SHELL", 'printf "security.protocol=SASL_SSL\nsasl.mechanism=PLAIN\nsasl.jaas.config=org.apache.kafka.common.security.plain.PlainLoginModule required username=\"admin\" password=\"admin-secret\";\nssl.truststore.location=/etc/kafka/secrets/kafka.kafka-2.truststore.jks\nssl.truststore.password=551288d\n" > /tmp/health.properties && kafka-broker-api-versions --bootstrap-server localhost:9095 --command-config /tmp/health.properties > /dev/null 2>&1']
+      interval: 10s
+      timeout: 15s
+      retries: 5
+      start_period: 40s
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.0
+    container_name: kafka-ui
+    cpus: 0.5
+    mem_limit: 768m
+    restart: always
+    ports:
+      - "127.0.0.1:8085:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: zookeeper-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS: kafka-0:9093
+      KAFKA_CLUSTERS_0_PROPERTIES_SECURITY_PROTOCOL: SASL_SSL
+      KAFKA_CLUSTERS_0_PROPERTIES_SASL_MECHANISM: PLAIN
+      KAFKA_CLUSTERS_0_PROPERTIES_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.plain.PlainLoginModule required username="admin" password="admin-secret";'
+      KAFKA_CLUSTERS_0_PROPERTIES_SSL_TRUSTSTORE_LOCATION: /certs/truststore.jks
+      KAFKA_CLUSTERS_0_PROPERTIES_SSL_TRUSTSTORE_PASSWORD: 551288d
+    volumes:
+      - ./kafka-0-creds/kafka.kafka-0.truststore.jks:/certs/truststore.jks:ro
+    networks:
+      - proxynet
+
+  kafka-init:
+    image: confluentinc/cp-kafka:7.4.4
+    container_name: kafka-init
+    command: bash /init/init-cluster.sh
+    volumes:
+      - ./init:/init:ro
+      - ./kafka-0-creds/kafka.kafka-0.truststore.jks:/certs/truststore.jks:ro
+    networks:
+      - proxynet
+    restart: "no"
+    depends_on:
+      kafka-0:
+        condition: service_healthy
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.4.4
+    cpus: 0.5
+    mem_limit: 1g
+    restart: always
+    ports:
+      - "127.0.0.1:8081:8081"
+    depends_on:
+      kafka-0:
+        condition: service_healthy
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka-0:9093,kafka-1:9094,kafka-2:9095
+      SCHEMA_REGISTRY_KAFKASTORE_SECURITY_PROTOCOL: SASL_SSL
+      SCHEMA_REGISTRY_KAFKASTORE_SASL_MECHANISM: PLAIN
+      SCHEMA_REGISTRY_KAFKASTORE_SASL_JAAS_CONFIG: 'org.apache.kafka.common.security.plain.PlainLoginModule required username="admin" password="admin-secret";'
+      SCHEMA_REGISTRY_KAFKASTORE_SSL_TRUSTSTORE_LOCATION: /certs/truststore.jks
+      SCHEMA_REGISTRY_KAFKASTORE_SSL_TRUSTSTORE_PASSWORD: 551288d
+    volumes:
+      - ./kafka-0-creds/kafka.kafka-0.truststore.jks:/certs/truststore.jks:ro
+    networks:
+      - proxynet
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8081/subjects > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  consumer-app-user:
+    build: .
+    cpus: 0.5
+    mem_limit: 768m
+    # Фиксированная куча и heap dump при OOM вместо кучи по умолчанию (~25% от памяти контейнера)
+    command: java -Xms64m -Xmx512m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/oom.hprof -cp /app/app.jar org.example.UserConsumer
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka-0:9093,kafka-1:9094,kafka-2:9095"
+      SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
+      GROUP_ID: "my-consumer-group-1"
+      SSL_TRUSTSTORE_LOCATION: /certs/truststore.jks
+      SSL_TRUSTSTORE_PASSWORD: 551288d
+    volumes:
+      - ./kafka-0-creds/kafka.kafka-0.truststore.jks:/certs/truststore.jks:ro
+    networks:
+      - proxynet
+    depends_on:
+      kafka-0:
+        condition: service_healthy
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      schema-registry:
+        condition: service_healthy
+
+  consumer-app-nifi:
+    build: .
+    cpus: 0.5
+    mem_limit: 768m
+    # Фиксированная куча и heap dump при OOM вместо кучи по умолчанию (~25% от памяти контейнера)
+    command: java -Xms64m -Xmx512m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/oom.hprof -cp /app/app.jar org.example.NifiConsumer
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka-0:9093,kafka-1:9094,kafka-2:9095"
+      SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
+      GROUP_ID: "my-consumer-group-2"
+      SSL_TRUSTSTORE_LOCATION: /certs/truststore.jks
+      SSL_TRUSTSTORE_PASSWORD: 551288d
+    volumes:
+      - ./kafka-0-creds/kafka.kafka-0.truststore.jks:/certs/truststore.jks:ro
+    networks:
+      - proxynet
+    depends_on:
+      kafka-0:
+        condition: service_healthy
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      schema-registry:
+        condition: service_healthy
+
+  producer-app:
+    build: .
+    cpus: 0.5
+    mem_limit: 768m
+    # Фиксированная куча и heap dump при OOM вместо кучи по умолчанию (~25% от памяти контейнера)
+    command: java -Xms64m -Xmx512m -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/oom.hprof -cp /app/app.jar org.example.Producer
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: "kafka-0:9093,kafka-1:9094,kafka-2:9095"
+      SCHEMA_REGISTRY_URL: "http://schema-registry:8081"
+      GROUP_ID: "my-consumer-group-1"
+      SSL_TRUSTSTORE_LOCATION: /certs/truststore.jks
+      SSL_TRUSTSTORE_PASSWORD: 551288d
+    volumes:
+      - ./kafka-0-creds/kafka.kafka-0.truststore.jks:/certs/truststore.jks:ro
+    networks:
+      - proxynet
+    depends_on:
+      kafka-0:
+        condition: service_healthy
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      schema-registry:
+        condition: service_healthy
+
+
+  nifi:
+    image: apache/nifi:1.21.0
+    container_name: nifi
+    cpus: 1.5
+    mem_limit: 2g
+    user: "root"
+    ports:
+      - "8080:8080"
+    networks:
+      - proxynet
+    environment:
+      NIFI_WEB_HTTP_PORT: 8080
+      SSL_TRUSTSTORE_LOCATION: /certs/truststore.jks
+      SSL_TRUSTSTORE_PASSWORD: 551288d
+    volumes:
+      - ./nifi_data:/opt/nifi/nifi-current/data
+      - ./kafka-0-creds/kafka.kafka-0.truststore.jks:/certs/truststore.jks:ro
+
+networks:
+  proxynet:
+    name: custom_network
+
+volumes:
+  data-zookeeper-log-1: {}
+  data-zookeeper-data-1: {}
+  data-kafka-0: {}
+  data-kafka-1: {}
+  data-kafka-2: {}
